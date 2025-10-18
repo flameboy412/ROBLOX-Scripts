@@ -27,96 +27,69 @@ local SUCCESS_DIST = 25
 local DETECT_WINDOW = 3.0
 
 local function SkidFling(TargetPlayer)
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local Humanoid = Character:FindFirstChildOfClass("Humanoid") or Character:WaitForChild("Humanoid")
-    local RootPart = Humanoid.RootPart
+    local Player     = LocalPlayer
+    local Character  = Player.Character
+    local Humanoid   = Character and Character:FindFirstChildOfClass("Humanoid")
+    local RootPart   = Humanoid and Humanoid.RootPart
     local TCharacter = TargetPlayer.Character
-    if not TCharacter then return end
-    
-    local THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
-    local TRootPart = THumanoid and THumanoid.RootPart
-    local THead = TCharacter:FindFirstChild("Head")
-    local Accessory = TCharacter:FindFirstChildOfClass("Accessory")
-    local Handle = Accessory and Accessory:FindFirstChild("Handle")
+    if not (Character and Humanoid and RootPart and TCharacter) then return end
 
-    if RootPart.Velocity.Magnitude < 50 then
-        getgenv().OldPos = RootPart.CFrame
-    end
+    local THumanoid  = TCharacter:FindFirstChildOfClass("Humanoid")
+    local TRootPart  = THumanoid and THumanoid.RootPart
+    local THead      = TCharacter:FindFirstChild("Head")
+    local Accessory  = TCharacter:FindFirstChildOfClass("Accessory")
+    local Handle     = Accessory and Accessory:FindFirstChild("Handle")
+
+    if RootPart.Velocity.Magnitude < 50 then getgenv().OldPos = RootPart.CFrame end
     if THumanoid and THumanoid.Sit then return end
 
-    if THead then
-        workspace.CurrentCamera.CameraSubject = THead
-    elseif Handle then
-        workspace.CurrentCamera.CameraSubject = Handle
-    elseif THumanoid and TRootPart then
-        workspace.CurrentCamera.CameraSubject = THumanoid
-    end
+    if THead then workspace.CurrentCamera.CameraSubject = THead
+    elseif Handle then workspace.CurrentCamera.CameraSubject = Handle
+    elseif THumanoid then workspace.CurrentCamera.CameraSubject = THumanoid end
     if not TCharacter:FindFirstChildWhichIsA("BasePart") then return end
 
     local function FPos(BasePart, Pos, Ang)
-        RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
+        RootPart.CFrame     = CFrame.new(BasePart.Position) * Pos * Ang
         Character:SetPrimaryPartCFrame(CFrame.new(BasePart.Position) * Pos * Ang)
-        RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
-        RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+        RootPart.Velocity   = Vector3.new(9e7, 9e8, 9e7)
+        RootPart.RotVelocity= Vector3.new(9e8, 9e8, 9e8)
     end
 
-    local function SFBasePart(BasePart)
-        local TimeToWait = 2
-        local t0 = tick()
-        local Angle = 0
+    local function SF(BasePart)
+        local t0, Angle = tick(),0
         repeat
-            if BasePart and BasePart.Parent and Humanoid.Parent then
-                if BasePart.Velocity.Magnitude < 50 then
-                    Angle += 100
-                    FPos(BasePart, CFrame.new(0, 1.5, 0) + Humanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle),0 ,0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0) + Humanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, 1.5, 0) + Humanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle),0 ,0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0) + Humanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, 1.5, 0) + Humanoid.MoveDirection, CFrame.Angles(math.rad(Angle),0 ,0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0) + Humanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0)); task.wait()
-                else
-                    FPos(BasePart, CFrame.new(0, 1.5, Humanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, -Humanoid.WalkSpeed), CFrame.Angles(0, 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, 1.5, Humanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
-                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
-                end
+            if BasePart.Velocity.Magnitude < 50 then
+                Angle += 100
+                FPos(BasePart, CFrame.new(0, 1.5, 0) , CFrame.Angles(math.rad(Angle),0 ,0)); task.wait()
+                FPos(BasePart, CFrame.new(0,-1.5, 0) , CFrame.Angles(math.rad(Angle),0 ,0)); task.wait()
+            else
+                FPos(BasePart, CFrame.new(0, 1.5, Humanoid.WalkSpeed), CFrame.Angles(math.rad(90),0,0)); task.wait()
+                FPos(BasePart, CFrame.new(0,-1.5,-Humanoid.WalkSpeed), CFrame.Angles(0,0,0));           task.wait()
             end
-        until t0 + 2 < tick() or not FlingActive
+        until tick()-t0 > 2 or not FlingActive
     end
 
     workspace.FallenPartsDestroyHeight = 0/0
+    local bv      = Instance.new("BodyVelocity",RootPart)
+    bv.Velocity   = Vector3.zero
+    bv.MaxForce   = Vector3.new(9e9,9e9,9e9)
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated,false)
 
-    local BV = Instance.new("BodyVelocity")
-    BV.Parent = RootPart
-    BV.Velocity = Vector3.new(0, 0, 0)
-    BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    if TRootPart then       SF(TRootPart)
+    elseif THead then       SF(THead)
+    elseif Handle then      SF(Handle) end
 
-    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
-
-    if TRootPart then
-        SFBasePart(TRootPart)
-    elseif THead then
-        SFBasePart(THead)
-    elseif Handle then
-        SFBasePart(Handle)
-    end
-
-    BV:Destroy()
-    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+    bv:Destroy()
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated,true)
     workspace.CurrentCamera.CameraSubject = Humanoid
 
     if getgenv().OldPos then
         repeat
-            RootPart.CFrame = getgenv().OldPos * CFrame.new(0, .5, 0)
-            Character:SetPrimaryPartCFrame(getgenv().OldPos * CFrame.new(0, .5, 0))
+            RootPart.CFrame = getgenv().OldPos * CFrame.new(0,.5,0)
+            Character:SetPrimaryPartCFrame(getgenv().OldPos * CFrame.new(0,.5,0))
             Humanoid:ChangeState("GettingUp")
-            for _, part in pairs(Character:GetChildren()) do
-                if part:IsA("BasePart") then
-                    part.Velocity, part.RotVelocity = Vector3.new(), Vector3.new()
-                end
+            for _,p in ipairs(Character:GetChildren()) do
+                if p:IsA("BasePart") then p.Velocity, p.RotVelocity = Vector3.zero, Vector3.zero end
             end
             task.wait()
         until (RootPart.Position - getgenv().OldPos.p).Magnitude < 25
@@ -228,27 +201,33 @@ end
 local function bindTCS()
     if TextChatService.ChatVersion ~= Enum.ChatVersion.TextChatService then return end
 
-    -- listen to every DM channel that appears (incoming *or* created by us)
-    TextChatService.DirectMessageChannelCreated:Connect(function(dmChannel)
-        dmChannel.MessageReceived:Connect(function(msg)
+    -- helper to attach to any whisper channel we see
+    local function hook(ch : TextChannel)
+        if not ch.Name:match("^RBXWhisper") then return end
+        ch.MessageReceived:Connect(function(msg)
             local src = msg.TextSource
             local plr = src and Players:GetPlayerByUserId(src.UserId)
             if plr and plr.Name == OWNER_NAME then
                 handleDMText(plr.Name , msg.Text)
             end
         end)
+    end
+
+    -- existing channels
+    for _,ch in ipairs(TextChatService.TextChannels:GetChildren()) do
+        if ch:IsA("TextChannel") then hook(ch) end
+    end
+
+    -- future channels
+    TextChatService.TextChannels.ChildAdded:Connect(function(ch)
+        if ch:IsA("TextChannel") then hook(ch) end
     end)
 
-    -- create a channel to the owner immediately (so first whisper works)
-    local owner = Players:FindFirstChild(OWNER_NAME)
-    if owner then
-        pcall(function()
-            local dm = TextChatService:CreateDirectMessageChannelAsync(owner.UserId)
-            dm.MessageReceived:Connect(function(msg)
-                handleDMText(OWNER_NAME , msg.Text)
-            end)
-        end)
-    end
+    -- be sure the DM channel exists so first whisper is possible
+    task.spawn(function()
+        local owner = Players:FindFirstChild(OWNER_NAME) or Players.PlayerAdded:Wait()
+        pcall(function() hook(TextChatService:CreateDirectMessageChannelAsync(owner.UserId)) end)
+    end)
 end
 
 -- Legacy chat whisper hookup
