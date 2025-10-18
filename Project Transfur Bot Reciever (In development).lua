@@ -1,38 +1,38 @@
--- RECEIVER: listens for private whispers instead of HTTPS. Place in StarterPlayerScripts on the receiver client.
+-- LocalScript (RECEIVER: ic33srr) — Listens for private chat from "XXXm00r" and executes fling commands
+-- Place in StarterPlayerScripts or StarterGui on ic33srr's client.
 
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 
 local LocalPlayer = Players.LocalPlayer
+local OWNER_NAME = "XXXm00r" -- sender
+local ownerPlayer = nil
 
-local SENDER_NAME = "XXXm00r"  -- the sender who will whisper commands
-local OWNER_NAME = "XXXm00r"   -- exclude on flingall
+-- Notify helper
+local function toast(t, m)
+    pcall(function() StarterGui:SetCore("SendNotification", {Title=t, Text=m, Duration=2}) end)
+end
+
+-- Fling implementation (SkidFling + success detect)
+local FlingActive = false
+getgenv().OldPos = nil
+getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
 local SUCCESS_VEL = 80
 local SUCCESS_DIST = 25
 local DETECT_WINDOW = 3.0
 
-local function notify(t, m)
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {Title=t, Text=m, Duration=2})
-    end)
-end
-
--- SkidFling (unchanged core)
-local FlingActive = false
-getgenv().OldPos = nil
-getgenv().FPDH = workspace.FallenPartsDestroyHeight
-
 local function SkidFling(TargetPlayer)
     local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local Humanoid = Character:WaitForChild("Humanoid")
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid") or Character:WaitForChild("Humanoid")
     local RootPart = Humanoid.RootPart
     local TCharacter = TargetPlayer.Character
     if not TCharacter then return end
-
+    
     local THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
     local TRootPart = THumanoid and THumanoid.RootPart
     local THead = TCharacter:FindFirstChild("Head")
@@ -84,7 +84,7 @@ local function SkidFling(TargetPlayer)
                     FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
                 end
             end
-        until t0 + TimeToWait < tick() or not FlingActive
+        until t0 + 2 < tick() or not FlingActive
     end
 
     workspace.FallenPartsDestroyHeight = 0/0
@@ -130,7 +130,6 @@ local function detectSuccess(target)
     local hum = char:FindFirstChildOfClass("Humanoid")
     local root = hum and hum.RootPart
     if not hum or not root then return false end
-
     local startPos = root.Position
     local ok = false
     local t0 = tick()
@@ -160,19 +159,20 @@ local function flingOnceWithDetect(target)
     return ok
 end
 
-local allLoop
-local function startFlingAll(ownerFrom)
-    if allLoop then return end
-    allLoop = task.spawn(function()
-        local marked = {}
-        while allLoop do
+-- Fling-all loop
+local flingAllThread
+local function startFlingAll()
+    if flingAllThread then return end
+    flingAllThread = task.spawn(function()
+        local done = {}
+        while flingAllThread do
             local list = Players:GetPlayers()
             for i = 1, #list do
                 local pl = list[i]
-                if pl ~= LocalPlayer and pl.Name ~= OWNER_NAME and pl.Name ~= ownerFrom and not marked[pl.UserId] then
+                if pl ~= LocalPlayer and pl.Name ~= OWNER_NAME and not done[pl.UserId] then
                     local ok = flingOnceWithDetect(pl)
                     if ok then
-                        marked[pl.UserId] = true
+                        done[pl.UserId] = true
                     end
                     task.wait(0.1)
                 end
@@ -180,90 +180,99 @@ local function startFlingAll(ownerFrom)
             task.wait(0.25)
         end
     end)
+    toast("Receiver", "Flinging all (except "..OWNER_NAME..")")
 end
-
 local function stopAll()
     FlingActive = false
-    if allLoop then allLoop = nil end
+    if flingAllThread then flingAllThread = nil end
+    toast("Receiver", "Stopped fling")
 end
 
--- Handle incoming private whispers
-local function handleWhisper(senderPlayer, message)
-    -- Only accept whispers from the designated sender
-    if not senderPlayer or senderPlayer.Name ~= SENDER_NAME then return end
-
-    -- Parse semicolon-prefixed commands
-    if message:sub(1, 1) == ";" then
-        local cmd = message:sub(2):gsub("^%s+", ""):gsub("%s+$", "")
-        local lower = cmd:lower()
-
-        if lower == "unfling" then
-            stopAll()
-            notify("Receiver", "Unfling command received")
-
-        elseif lower == "flingall" then
-            stopAll()
-            startFlingAll(SENDER_NAME)
-            notify("Receiver", "Flinging all (except "..OWNER_NAME..")")
-
-        elseif lower:sub(1,6) == "fling " then
-            stopAll()
-            local targetName = cmd:sub(7)
-            if #targetName > 0 then
-                local target
-                local list = Players:GetPlayers()
-                for i = 1, #list do
-                    local p = list[i]
-                    if p ~= LocalPlayer then
-                        if p.Name:lower():sub(1,#targetName) == targetName:lower()
-                            or (p.DisplayName and p.DisplayName:lower():sub(1,#targetName) == targetName:lower()) then
-                            target = p
-                            break
-                        end
-                    end
-                end
-
-                if target and target.Name ~= OWNER_NAME and target.Name ~= SENDER_NAME then
-                    local ok = flingOnceWithDetect(target)
-                    notify("Receiver", (ok and "Fling successful" or "Fling failed") .. ": " .. target.Name)
-                else
-                    notify("Receiver", "Target not found or protected: " .. targetName)
-                end
+-- Handle incoming DM text (string beginning with ';')
+local function handleDMText(fromName, text)
+    if fromName ~= OWNER_NAME then return end
+    if type(text) ~= "string" then return end
+    local t = text:lower()
+    if t:sub(1,1) ~= ";" then return end
+    t = t:sub(2) -- remove ';'
+    if t == "flingall" then
+        stopAll()
+        startFlingAll()
+        return
+    end
+    if t == "unfling" then
+        stopAll()
+        return
+    end
+    local who = t:match("^fling%s+(.+)$")
+    if who and #who > 0 then
+        local target = nil
+        local list = Players:GetPlayers()
+        for i = 1, #list do
+            local p = list[i]
+            if p ~= LocalPlayer and p.Name:lower():sub(1, #who:lower()) == who:lower() then
+                target = p
+                break
             end
+        end
+        if target and target.Name ~= OWNER_NAME then
+            local ok = flingOnceWithDetect(target)
+            toast("Receiver", ok and ("Flinged "..target.Name) or ("Failed "..target.Name))
+        else
+            toast("Receiver", "Target not found")
         end
     end
 end
 
--- Set up whisper listeners (TextChatService or Legacy)
-if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-    -- Listen for direct messages
-    local function checkDirectMessages()
-        while true do
-            local success, messages = pcall(function()
-                return TextChatService:GetDirectMessagesAsync()
-            end)
-            if success and messages then
-                for _, msg in ipairs(messages) do
-                    local senderPlayer = Players:GetPlayerByUserId(msg.AuthorUserId)
-                    if senderPlayer and senderPlayer.Name == SENDER_NAME then
-                        handleWhisper(senderPlayer, msg.Text)
-                    end
+-- TextChatService (new) DM hookup
+local function bindTCS()
+    local owner = Players:FindFirstChild(OWNER_NAME)
+    if not owner then
+        Players.PlayerAdded:Connect(function(p)
+            if p.Name == OWNER_NAME then ownerPlayer = p end
+        end)
+        owner = Players:FindFirstChild(OWNER_NAME)
+    end
+    if owner then ownerPlayer = owner end
+    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local function ensureDM()
+            local p = ownerPlayer or Players:FindFirstChild(OWNER_NAME)
+            if not p then return nil end
+            local ok, ch = pcall(function() return TextChatService:CreateDirectMessageChannelAsync(p.UserId) end)
+            if ok and ch then
+                ch.MessageReceived:Connect(function(msg)
+                    local sender = msg.TextSource and Players:GetPlayerByUserId(msg.TextSource.UserId)
+                    local txt = msg.Text
+                    handleDMText(sender and sender.Name or "", txt)
+                end)
+                return ch
+            end
+            return nil
+        end
+        ensureDM()
+    end
+end
+
+-- Legacy chat whisper hookup
+local function bindLegacy()
+    local events = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    local onMsg = events and events:FindFirstChild("OnMessageDoneFiltering")
+    if onMsg then
+        onMsg.OnClientEvent:Connect(function(data)
+            -- data.FromSpeaker, data.Message, data.OriginalChannel (often "Whisper" for DMs)
+            if data and data.FromSpeaker == OWNER_NAME then
+                -- Only process whispers or anything that starts with ';'
+                local channel = tostring(data.OriginalChannel or data.Channel or "")
+                if channel:lower():find("whisper") or (type(data.Message)=="string" and data.Message:find("^;")) then
+                    handleDMText(OWNER_NAME, data.Message)
                 end
             end
-            task.wait(1.0)
-        end
-    end
-    task.spawn(checkDirectMessages)
-else
-    -- Legacy chat system - listen for whisper events
-    local events = ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents", 10)
-    local onWhisper = events and events:FindFirstChild("OnWhisperMessage")
-    if onWhisper then
-        onWhisper.OnClientEvent:Connect(function(from, msg)
-            local sender = Players:FindFirstChild(from)
-            handleWhisper(sender, msg)
         end)
     end
 end
 
-notify("Receiver Ready", "Listening for whispers from "..SENDER_NAME)
+-- Bind listeners
+bindTCS()
+bindLegacy()
+
+toast("Receiver Ready", "Listening for DMs from "..OWNER_NAME)
