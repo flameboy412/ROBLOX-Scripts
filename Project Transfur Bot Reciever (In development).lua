@@ -22,6 +22,10 @@ local FlingActive = false
 getgenv().OldPos = nil
 getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
+local FlingLoopThread      = nil      -- coroutine that keeps flinging
+local FlingAllMode         = false    -- true -> fling everybody (except owner)
+local TargetTable          = {}       -- [UserId] = Player
+
 local SUCCESS_VEL = 80
 local SUCCESS_DIST = 25
 local DETECT_WINDOW = 3.0
@@ -97,133 +101,123 @@ local function SkidFling(TargetPlayer)
     end
 end
 
-local function detectSuccess(target)
-    local char = target.Character
-    if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local root = hum and hum.RootPart
-    if not hum or not root then return false end
-    local startPos = root.Position
-    local ok = false
-    local t0 = tick()
-    while tick() - t0 < DETECT_WINDOW do
-        if not hum.Parent or not root.Parent then break end
-        local vel = root.Velocity.Magnitude
-        local dist = (root.Position - startPos).Magnitude
-        local st = hum:GetState()
-        if vel >= SUCCESS_VEL or dist >= SUCCESS_DIST
-            or st == Enum.HumanoidStateType.Freefall
-            or st == Enum.HumanoidStateType.FallingDown
-            or st == Enum.HumanoidStateType.Ragdoll then
-            ok = true
-            break
-        end
-        RunService.Heartbeat:Wait()
-    end
-    return ok
-end
-
-local function flingOnceWithDetect(target)
-    if not target or target == LocalPlayer then return false end
-    FlingActive = true
-    task.spawn(function() pcall(function() SkidFling(target) end) end)
-    local ok = detectSuccess(target)
-    FlingActive = false
-    return ok
-end
-
--- Fling-all loop
-local flingAllThread
-local function startFlingAll()
-    if flingAllThread then return end
-    flingAllThread = task.spawn(function()
-        local done = {}
-        while flingAllThread do
-            local list = Players:GetPlayers()
-            for i = 1, #list do
-                local pl = list[i]
-                if pl ~= LocalPlayer and pl.Name ~= OWNER_NAME and not done[pl.UserId] then
-                    local ok = flingOnceWithDetect(pl)
-                    if ok then
-                        done[pl.UserId] = true
+------------------------------------------------------------------------
+-- >>>  continuous flinging coroutine
+------------------------------------------------------------------------
+local function startFlingLoop()
+    if FlingLoopThread then return end           -- already running
+    FlingLoopThread = task.spawn(function()
+        while FlingActive do
+            -- build current target list each cycle --------------------
+            local list = {}
+            if FlingAllMode then
+                for _,plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and plr.Name ~= OWNER_NAME then
+                        table.insert(list,plr)
                     end
-                    task.wait(0.1)
+                end
+            else
+                for _,plr in pairs(TargetTable) do
+                    if plr and plr.Parent then
+                        table.insert(list,plr)
+                    end
                 end
             end
-            task.wait(0.25)
+
+            -- fling everyone in that list ----------------------------
+            for _,plr in ipairs(list) do
+                if not FlingActive then break end
+                pcall(function() SkidFling(plr) end)
+                task.wait(0.05)                   -- tiny delay between targets
+            end
+
+            task.wait(0.25)                       -- wait before next cycle
         end
     end)
-    toast("Receiver", "Flinging all (except "..OWNER_NAME..")")
 end
-local function stopAll()
-    FlingActive = false
-    if flingAllThread then flingAllThread = nil end
+
+local function stopFlingLoop()
+    FlingActive, FlingAllMode = false, false
+    TargetTable               = {}
+    FlingLoopThread           = nil
     toast("Receiver", "Stopped fling")
 end
 
--- Handle incoming DM text (string beginning with ';')
-local function handleDMText(fromName, text)
-    if fromName ~= OWNER_NAME then return end
-    if type(text) ~= "string" then return end
-    local t = text:lower()
-    if t:sub(1,1) ~= ";" then return end
-    t = t:sub(2) -- remove ';'
-    if t == "flingall" then
-        stopAll()
-        startFlingAll()
+------------------------------------------------------------------------
+-- >>>  completely replace the old handleDMText() with this one
+------------------------------------------------------------------------
+local function handleDMText(fromName : string , text : string)
+    if fromName ~= OWNER_NAME          then return end
+    if type(text) ~= "string"          then return end
+    if text:sub(1,1) ~= ";"            then return end   -- must start with ;
+
+    local cmd = text:sub(2):lower()                     -- trim leading ";"
+
+    --------------------------------------------------------------------
+    if cmd == "unfling" then                        --  ;unfling
+        stopFlingLoop()
         return
     end
-    if t == "unfling" then
-        stopAll()
+
+    --------------------------------------------------------------------
+    if cmd == "flingall" then                       --  ;flingall
+        FlingActive   = true
+        FlingAllMode  = true
+        startFlingLoop()
+        toast("Receiver","Now flinging everyone except "..OWNER_NAME)
         return
     end
-    local who = t:match("^fling%s+(.+)$")
+
+    --------------------------------------------------------------------
+    local who = cmd:match("^fling%s+(.+)$")         --  ;fling <name>
     if who and #who > 0 then
         local target = nil
-        local list = Players:GetPlayers()
-        for i = 1, #list do
-            local p = list[i]
-            if p ~= LocalPlayer and p.Name:lower():sub(1, #who:lower()) == who:lower() then
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer
+               and p.Name:lower():sub(1,#who) == who:lower()
+               and p.Name ~= OWNER_NAME then
                 target = p
                 break
             end
         end
-        if target and target.Name ~= OWNER_NAME then
-            local ok = flingOnceWithDetect(target)
-            toast("Receiver", ok and ("Flinged "..target.Name) or ("Failed "..target.Name))
+        if target then
+            FlingActive            = true
+            FlingAllMode           = false
+            TargetTable[target.UserId] = target
+            startFlingLoop()
+            toast("Receiver","Flinging "..target.Name)
         else
-            toast("Receiver", "Target not found")
+            toast("Receiver","Target not found")
         end
+        return
     end
 end
 
--- TextChatService (new) DM hookup
+------------------------------------------------------------------------
+-- >>>  finally, keep the DM-hooking code but CALL the new handler
+--      (replace the old bindTCS() with this compact version)
+------------------------------------------------------------------------
 local function bindTCS()
     if TextChatService.ChatVersion ~= Enum.ChatVersion.TextChatService then return end
 
-    -- helper to attach to any whisper channel we see
     local function hook(ch : TextChannel)
         if not ch.Name:match("^RBXWhisper") then return end
         ch.MessageReceived:Connect(function(msg)
             local src = msg.TextSource
             local plr = src and Players:GetPlayerByUserId(src.UserId)
-            if plr and plr.Name == OWNER_NAME then
-                handleDMText(plr.Name , msg.Text)
-            end
+            if plr then handleDMText(plr.Name , msg.Text) end
         end)
     end
 
-    -- existing channels
-    for _,ch in ipairs(TextChatService.TextChannels:GetChildren()) do
-        if ch:IsA("TextChannel") then hook(ch) end
+    -- existing & future whisper channels
+    for _,c in ipairs(TextChatService.TextChannels:GetChildren()) do
+        if c:IsA("TextChannel") then hook(c) end
     end
-
-    -- future channels
-    TextChatService.TextChannels.ChildAdded:Connect(function(ch)
-        if ch:IsA("TextChannel") then hook(ch) end
+    TextChatService.TextChannels.ChildAdded:Connect(function(c)
+        if c:IsA("TextChannel") then hook(c) end
     end)
 
-    -- be sure the DM channel exists so first whisper is possible
+    -- be sure a DM channel with the owner exists so the first whisper arrives
     task.spawn(function()
         local owner = Players:FindFirstChild(OWNER_NAME) or Players.PlayerAdded:Wait()
         pcall(function() hook(TextChatService:CreateDirectMessageChannelAsync(owner.UserId)) end)
