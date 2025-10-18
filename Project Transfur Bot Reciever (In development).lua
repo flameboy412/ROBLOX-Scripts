@@ -226,30 +226,28 @@ end
 
 -- TextChatService (new) DM hookup
 local function bindTCS()
-    local owner = Players:FindFirstChild(OWNER_NAME)
-    if not owner then
-        Players.PlayerAdded:Connect(function(p)
-            if p.Name == OWNER_NAME then ownerPlayer = p end
-        end)
-        owner = Players:FindFirstChild(OWNER_NAME)
-    end
-    if owner then ownerPlayer = owner end
-    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-        local function ensureDM()
-            local p = ownerPlayer or Players:FindFirstChild(OWNER_NAME)
-            if not p then return nil end
-            local ok, ch = pcall(function() return TextChatService:CreateDirectMessageChannelAsync(p.UserId) end)
-            if ok and ch then
-                ch.MessageReceived:Connect(function(msg)
-                    local sender = msg.TextSource and Players:GetPlayerByUserId(msg.TextSource.UserId)
-                    local txt = msg.Text
-                    handleDMText(sender and sender.Name or "", txt)
-                end)
-                return ch
+    if TextChatService.ChatVersion ~= Enum.ChatVersion.TextChatService then return end
+
+    -- listen to every DM channel that appears (incoming *or* created by us)
+    TextChatService.DirectMessageChannelCreated:Connect(function(dmChannel)
+        dmChannel.MessageReceived:Connect(function(msg)
+            local src = msg.TextSource
+            local plr = src and Players:GetPlayerByUserId(src.UserId)
+            if plr and plr.Name == OWNER_NAME then
+                handleDMText(plr.Name , msg.Text)
             end
-            return nil
-        end
-        ensureDM()
+        end)
+    end)
+
+    -- create a channel to the owner immediately (so first whisper works)
+    local owner = Players:FindFirstChild(OWNER_NAME)
+    if owner then
+        pcall(function()
+            local dm = TextChatService:CreateDirectMessageChannelAsync(owner.UserId)
+            dm.MessageReceived:Connect(function(msg)
+                handleDMText(OWNER_NAME , msg.Text)
+            end)
+        end)
     end
 end
 
