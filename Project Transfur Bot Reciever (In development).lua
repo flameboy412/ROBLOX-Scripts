@@ -30,6 +30,48 @@ local SUCCESS_VEL = 80
 local SUCCESS_DIST = 25
 local DETECT_WINDOW = 3.0
 
+--------------------------------------------------------------------
+-- >>> 1)  put this near the other "local ..." declarations
+--------------------------------------------------------------------
+local COMMAND_LIST = {
+    ";cmds",
+    ";fling [username]",
+    ";flingall",
+    ";unfling",
+    ";meleekill [username] [tool name]",
+    ";gunkill [tool name]",
+    ";grabguns",
+    ";grabmelees",
+    ";grabarmor",
+    ";hitboxexp",
+    ";ammo",
+    ";grabheals",
+    ";heal",
+    ";radio",
+    ";follow [username]",
+    ";tp [username]"
+}
+
+-- small cache so we don't create the channel every line we send
+local replyDM = {channel = nil}
+local function sendDMToOwner(txt : string)
+    local owner = Players:FindFirstChild(OWNER_NAME)
+    if not owner then return end
+    if TextChatService.ChatVersion ~= Enum.ChatVersion.TextChatService then return end
+
+    if not replyDM.channel then
+        local ok, ch = pcall(function()
+            return TextChatService:CreateDirectMessageChannelAsync(owner.UserId)
+        end)
+        if ok and ch then
+            replyDM.channel = ch
+        else
+            return
+        end
+    end
+    pcall(function() replyDM.channel:SendAsync(txt) end)
+end
+
 local function SkidFling(TargetPlayer)
     local Player     = LocalPlayer
     local Character  = Player.Character
@@ -152,6 +194,15 @@ local function handleDMText(fromName : string , text : string)
     if text:sub(1,1) ~= ";"            then return end   -- must start with ;
 
     local cmd = text:sub(2):lower()                     -- trim leading ";"
+
+    --------------------------------------------------------------------
+    if cmd == "cmds" then                     --  ;cmds
+        for _,line in ipairs(COMMAND_LIST) do
+            sendDMToOwner(line)
+            task.wait(0.05)                   -- slight spacing
+        end
+        return
+    end
 
     --------------------------------------------------------------------
     if cmd == "unfling" then                        --  ;unfling
